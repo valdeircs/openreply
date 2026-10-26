@@ -1,0 +1,51 @@
+name: Build image (artifact)
+
+# Builds the self-hosted image (Dockerfile at the root) for linux/amd64 and keeps it as a
+# downloadable workflow artifact (`docker save`, gzipped) — no registry, no secrets.
+# Deploy by streaming it straight into the server's Docker:
+#   gh run download <run-id> -n openreply-image
+#   gunzip -c openreply.tar.gz | ssh <server> docker load
+#
+# Triggers:
+#   * push to main        -> openreply:<commit sha>
+#   * manual (workflow_dispatch)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build linux/amd64 image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          tags: openreply:${{ github.sha }}
+          outputs: type=docker,dest=/tmp/openreply.tar
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Compress
+        run: gzip -1 /tmp/openreply.tar
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: openreply-image
+          path: /tmp/openreply.tar.gz
+          compression-level: 0
+          retention-days: 7
